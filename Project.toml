@@ -1,0 +1,17 @@
+name = "QuantumNetworkRecipes"
+uuid = "048ffb77-4b1b-484d-b5ab-bbef35ee5cc3"
+authors = ["Guus Avis <guusavis@hotmail.com>"]
+version = "0.1.0"
+
+[deps]
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+StochasticAD = "e4facb34-4f7e-4bec-b153-e122c37934ac"
+
+[compat]
+Distributions = "0.25.113"
+Graphs = "1.9.0"
+StochasticAD = "0.1.26"
+Statistics = "1.10.0"

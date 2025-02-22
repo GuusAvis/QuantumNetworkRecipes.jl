@@ -62,17 +62,19 @@ end
 
 Draw a number of samples for the durations of generating each of the links in the chain.
 
-The samples are provided as a vector of vectors; the outer vector has length
-`number_of_samples`, each entry representing a single sample. The inner vectors have length
-equal to the number of links in the chain, and each entry represents the duration of
-generating the corresponding link.
+The samples are provided as an m-by-n matrix, where m is the number of links in the chain and n is
+the number of samples. Each entry represents the duration of generating the corresponding link.
 """
 function sample_link_durations end
 
 function sample_link_durations(x::ChainRecipe{E, N, SwapASAPRestartPerState},
         number_of_samples) where {E<:HeraldedEntanglement, N}
-    random_vars = [Duration(e) for e in edges_and_nodes(x)] 
-    [rand.(random_vars) for _ in 1:number_of_samples]
+    random_vars = [Duration(e) for e in edges_and_nodes(x)]
+    samples = Matrix{Real}(undef, length(random_vars), number_of_samples)
+    for col in eachcol(samples)
+        col .= rand.(random_vars)
+    end
+    samples
 end
 
 """
@@ -126,11 +128,11 @@ end
 function sample_link_durations(x::ChainRecipe{E, N, SwapASAPWithoutCutoff},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Vector{Real}[]
-    sample = [0 for _ in 1:length(random_variables)]  # start time of the nodes
-    for _ in 1:number_of_samples
-        end_time_previous_sample = maximum(sample)
-        free_times = [_find_free_time(sample, i) for i in 1:length(sample)]
+    samples = Matrix{Real}(undef, length(random_variables), number_of_samples)
+    for j in 1:number_of_samples
+        previous_sample = j == 1 ? zeros(length(random_variables)) : view(samples, :, j-1)
+        end_time_previous_sample = maximum(previous_sample)
+        free_times = [_find_free_time(previous_sample, i) for i in 1:length(previous_sample)]
         link_times_after_start_previous_sample = free_times + rand.(random_variables)
         link_times_after_end_previous_sample = link_times_after_start_previous_sample .-
             end_time_previous_sample
@@ -138,8 +140,7 @@ function sample_link_durations(x::ChainRecipe{E, N, SwapASAPWithoutCutoff},
         # have a head start in entanglement generation
         # as a result, some of the links may be finished already at negative times (i.e., 
         # before the previous end-to-end link was finished)
-        sample = link_times_after_end_previous_sample
-        push!(samples, sample)
+        samples[:, j] = link_times_after_end_previous_sample
     end
     samples
 end
@@ -480,9 +481,9 @@ function sample_link_durations(
         for n in nodes(x)[begin + 1:end - 1]
     ]
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Vector{Real}[]
-    previous_sample = [0 for _ in 1:length(random_variables)]  # start time of the nodes
-    for _ in 1:number_of_samples
+    samples = Matrix{Real}(undef, length(random_variables), number_of_samples)
+    for j in 1:number_of_samples
+        previous_sample = j == 1 ? zeros(length(random_variables)) : view(samples, :, j-1)
         end_time_previous_sample = maximum(previous_sample)
         free_times = [_find_free_time(previous_sample, i)
             for i in 1:length(previous_sample)]
@@ -494,8 +495,7 @@ function sample_link_durations(
             new_sample = _resample_until_no_cutoff(new_sample, random_variables,
                 cutoff_times)
         end
-        push!(samples, new_sample)
-        previous_sample = new_sample
+        samples[:, j] = new_sample
     end
     samples
 end
@@ -508,7 +508,7 @@ end
 
 function generation_duration(::ChainRecipe{E, N, P}, ::Sampling,
         link_duration_samples) where {E, N, P<:SwapASAP}
-    durations = maximum.(link_duration_samples)
+    durations = maximum.(eachcol(link_duration_samples))
     _calculate_mean_and_error(durations)
 end
 
@@ -559,7 +559,7 @@ function werner_parameter(x::ChainRecipe{E, SimpleNode{N}, P}, ::Sampling,
         N<:AbstractNodeWithMemory{DepolarizingMemory}, P<:SwapASAP}
     werner_param_links = prod(werner_parameter_from_fidelity(entangled_state_fidelity(e))
         for e in edges_and_nodes(x))
-    ts = link_duration_samples
+    ts = eachcol(link_duration_samples)
     mem_depolar_params = [mem_depolar_param_from_link_durations(x, t) for t in ts]
     werner_params = mem_depolar_params * werner_param_links
     _calculate_mean_and_error(werner_params)

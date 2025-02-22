@@ -125,11 +125,8 @@ end
         nodes = [SimpleNode(PerfectNode()) for _ in 1:6]
         chain = ChainRecipe(edges, nodes, swap_asap)
         samples = f(chain, 3)
-        @test length(samples) == 3
-        for sample in samples
-            @test length(sample) == 5
-            @test all(sample .== 8)
-        end
+        @test size(samples) == (5, 3)
+        @test all(samples .== 8)
     end
 end
 
@@ -191,8 +188,8 @@ end
         nodes = [SimpleNode(PerfectNode()) for _ in 1:7]
         chain = ChainRecipe(edges, nodes, swap_asap)
         samples = f(chain, 4)
-        @test length(samples) == 4
-        @test samples[1] == link_times
+        @test size(samples) == (6, 4)
+        @test samples[:, 1] == link_times
         # link 1 and 6 can only restart at time 5, after the end-to-end link is finished,
         # because they are end nodes
         # link 2 can only restart at time 5 because the first repeater is busy until then
@@ -201,13 +198,13 @@ end
         # 4 + 3 = 7, and link 4 finishes at time 3 + 2 = 5. Relative to the starting time of
         # the second round, i.e. counted after delivering the first entangled state, these
         # give completion times of 2 and 0 respectively
-        @test samples[2] == [5., 4., 2., 0., 2., 4.]
+        @test samples[:, 2] == [5., 4., 2., 0., 2., 4.]
         # in the third round, all links except the 4th one become free at the same time as
         # last time, and hence should give the same result again
         # but link 4 can restart at time 2, making it finish at time 4 after completion of
         # the first entangled state, and hence time -1 after the completion of the second
         # entangled state (i.e., one time unit before it was completed)
-        @test samples[3] == [5., 4., 2., -1., 2., 4.]
+        @test samples[:, 3] == [5., 4., 2., -1., 2., 4.]
     end
 end
 
@@ -568,7 +565,8 @@ end
         # this gives [10, 10, 10] which means we get a clean slate for the next one
         # (no residual entangelement)
         samples = f(chain, 5)
-        @test samples == [[10, 10, 10] for _ in 1:5]
+        @test size(samples) == (3, 5)
+        @test all(samples .== 10)
 
         # now a test with residual entanglement and no cutoffs
         # this test is essentially copied from the one for swap-asap without cutoffs
@@ -579,10 +577,10 @@ end
         # default cutoff is infinity, i.e. no cutoff
         chain = ChainRecipe(edges, nodes, SwapASAPWithCutoff(LocalCutoffProtocol()))
         samples = f(chain, 4)
-        @test length(samples) == 4
-        @test samples[1] == link_times
-        @test samples[2] == [5., 4., 2., 0., 2., 4.]
-        @test samples[3] == [5., 4., 2., -1., 2., 4.]
+        @test size(samples) == (6, 4)
+        @test samples[:, 1] == link_times
+        @test samples[:, 2] == [5., 4., 2., 0., 2., 4.]
+        @test samples[:, 3] == [5., 4., 2., -1., 2., 4.]
 
         # now we test residual entanglement in the presence of cutoffs
         link_times = [8., 6., 2., 5., 2.]
@@ -598,7 +596,7 @@ end
         # note that link 5 does not get such a head start, as end nodes hold on to their
         # qubits until the end-to-end link is finished
         samples = f(chain, 3)
-        @test samples[1] == [8., 6., 6., 5., 6.]
+        @test samples[:, 1] == [8., 6., 6., 5., 6.]
         # links 3, 4 are ready at times 0, 3 due to headstarts
         # link 5 is ready at time 2
         # links 3 triggers cutoffs at 2 and then regenerates at 4
@@ -606,7 +604,7 @@ end
         # link 4 and 5 swap at time 3, links 3 and 4 at time 4
         # then at time 6, link 2 and 3 are swapped and at time 8, links 1 and 2,
         # hence no further cutoffs are triggered
-        @test samples[2] == [8., 6., 4., 3., 2.]
+        @test samples[:, 2] == [8., 6., 4., 3., 2.]
         # now, link 3 has a headstart of 2 and link 4 of 4
         # therefore they regenerate their links in the next round at times 0 and 1
         # giving [8, 6, 0, 1, 2]
@@ -625,7 +623,7 @@ end
         # but links 3 and 4 restart at time 13, giving [18, 20, 15, 18, 16]
         # then link 3 is discarded at 17 and regenerated at 19
         # we then, finally, have an end-to-end pair!
-        @test samples[3] == [18., 20., 19., 18., 16.]
+        @test samples[:, 3] == [18., 20., 19., 18., 16.]
 
         # test non-uniform cutoff times
         link_times = [8., 3., 8., 3., 8., 3., 8., 3., 8.]
@@ -642,7 +640,7 @@ end
         # the third 3 has a cutoff time of 2 on one side and 3 on the other;
         # the shorter will be the limiting factor and hence it will be like the first
         # same for the final 3, but with the cutoff sides reversed
-        @test samples == [[8., 8., 8., 9., 8., 8., 8., 8., 8.]]
+        @test samples == [[8., 8., 8., 9., 8., 8., 8., 8., 8.];;]
 
         # check that end nodes never trigger cutoffs
         link_times = [10., 20., 30., 40., 50., 40., 30., 20., 10.]
@@ -654,8 +652,8 @@ end
         # a cutoff, the end nodes need to store for 40 time units
         # they shouldn't trigger a cutoff either though because end nodes are never
         # supposed to do so
-        sample, = f(chain, 1)
-        @test sample == link_times
+        sample = f(chain, 1)
+        @test sample == [link_times;;]
 
         @testset "Stochastic AD compatibility" begin
 
@@ -667,9 +665,9 @@ end
                 SwapASAPWithCutoff(LocalCutoffProtocol(stoch_trip(2., 0., 10., 3.))))
             # for cutoff time of 2, link 2 restarts at time 6 and finishes at time 10
             # for cutoff time of 12, link 2 does not need to restart and finishes at 4
-            sample, = f(chain, 1)
-            @test value.(sample) == [10, 10, 10]
-            @test all(perturbation_is.(sample, [(0, 3.), (-6., 3.), (0, 3.)]))
+            sample = f(chain, 1)
+            @test value.(sample) == [[10, 10, 10];;]
+            @test all(perturbation_is.(sample, [[(0, 3.), (-6., 3.), (0, 3.)];;]))
 
             # TODO more extensive testing
         end

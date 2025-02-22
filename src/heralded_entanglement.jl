@@ -98,7 +98,7 @@ If an `EdgeAndNodes` is provided, first `success_probability` is called on the i
 """
 struct NumberOfAttempts{T<:Real} <: Distributions.DiscreteUnivariateDistribution
     success_probability::T
-    ρ::Distributions.DiscreteUnivariateDistribution
+    ρ::Distributions.LocationScale{Int, Distributions.Discrete, Distributions.Geometric{T}}
     function NumberOfAttempts(success_probability::T) where T <: Real
         ρ = Distributions.Geometric(success_probability) + 1
         new{T}(success_probability, ρ)

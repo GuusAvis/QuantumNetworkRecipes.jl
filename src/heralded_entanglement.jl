@@ -4,14 +4,14 @@
 Recipe for an edge on which heralded entanglement generation takes place.
 
 In heralded entanglement generation, a sequence of attempts at entanglement generation is
-performed. Succes of these attempts is "heralded", that is, the nodes that are performing
+performed. Success of these attempts is "heralded", that is, the nodes that are performing
 heralded entanglement generation learn whether the attempt was a succes and entanglement
 was generated, or wether it was a failure. A series of attempts is performed until a success
 is obtained.
 
 It is assumed that all attempts are identical and have the same success probability.
-That is, they are modeled as identical and independent Bernouilli trials.
-As a conequence, the number of attempts until success is geometrically distributed.
+That is, they are modeled as identical and independent Bernoulli trials.
+As a consequence, the number of attempts until success is geometrically distributed.
 """
 abstract type HeraldedEntanglement{T<:EdgePhysicalRepresentation, S<:EntangledStateType} <:
     EdgeRecipe{T} end
@@ -87,11 +87,11 @@ generation_duration(edge::HeraldedEntanglement, nodes::Tuple{Vararg{NodeRecipe}}
 
 The number of identical and independent attempts needed to obtain a success.
 
-Every attempt is an independent Bernouilli process with the same success probability.
-The number of attempts until succes is a random variable that is geometrically distributed.
+Every attempt is an independent Bernoulli process with the same success probability.
+The number of attempts until success is a random variable that is geometrically distributed.
 However, it deviates slightly from `Geometric` included in `Distributions.jl`,
 as it uses a different convention:
-that one counts the number of _failed_ attemps until the first success.
+that one counts the number of _failed_ attempts until the first success.
 `NumberOfAttempts` also counts the succesful attempt.
 
 If an `EdgeAndNodes` is provided, first `success_probability` is called on the input.

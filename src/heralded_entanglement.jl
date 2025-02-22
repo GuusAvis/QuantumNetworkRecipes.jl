@@ -146,7 +146,7 @@ determined from that.
 struct Duration{S<:Real, T<:Real} <: Distributions.DiscreteUnivariateDistribution
     success_probability::S
     attempt_duration::T
-    ρ::Distributions.DiscreteUnivariateDistribution
+    ρ::Distributions.LocationScale{T, Distributions.Discrete, NumberOfAttempts{S}}
     function Duration(success_probability::S, attempt_duration::T) where {S, T}
         ρ = NumberOfAttempts(success_probability) * attempt_duration
         new{S, T}(success_probability, attempt_duration, ρ)

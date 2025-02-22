@@ -95,21 +95,12 @@ that one counts the number of _failed_ attempts until the first success.
 `NumberOfAttempts` also counts the succesful attempt.
 
 If an `EdgeAndNodes` is provided, first `success_probability` is called on the input.
-
-# Implementation
-
-`Distributions.Geometric` raises an error when a success probability of one is passed, even
-though the geometric distribution is well-defined at that value: it just always gives the
-same result, as the first attempt is always succesful. Therefore, in case 1 is passed here,
-we don't call `Distributions.Geometric` but instead `Distributions.Dirac` to give
-a distribution with support only at the value of one (it takes one attempt until success).
 """
 struct NumberOfAttempts{T<:Real} <: Distributions.DiscreteUnivariateDistribution
     success_probability::T
     ρ::Distributions.DiscreteUnivariateDistribution
     function NumberOfAttempts(success_probability::T) where T <: Real
-        ρ = isone(success_probability) ? Distributions.Dirac(1) :
-            Distributions.Geometric(success_probability) + 1
+        ρ = Distributions.Geometric(success_probability) + 1
         new{T}(success_probability, ρ)
     end
 end

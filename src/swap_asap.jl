@@ -70,7 +70,7 @@ function sample_link_durations end
 function sample_link_durations(x::ChainRecipe{E, N, SwapASAPRestartPerState},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_vars = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Matrix{Real}(undef, length(random_vars), number_of_samples)
+    samples = Matrix{typeof(rand(random_vars[1]))}(undef, length(random_vars), number_of_samples)
     for col in eachcol(samples)
         col .= rand.(random_vars)
     end

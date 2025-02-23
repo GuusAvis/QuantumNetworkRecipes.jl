@@ -34,7 +34,7 @@ end
 function sample_link_durations(x::SingleSequentialRepeater{E, N}, number_of_samples) where
         {E<:HeraldedEntanglement, N}
     t_random_vars = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Matrix{Real}(undef, length(t_random_vars), number_of_samples)
+    samples = Matrix{typeof(rand(t_random_vars[1]))}(undef, length(t_random_vars), number_of_samples)
     for col in eachcol(samples)
         col .= rand.(t_random_vars)
     end

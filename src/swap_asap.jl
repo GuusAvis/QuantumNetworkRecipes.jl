@@ -129,17 +129,17 @@ function sample_link_durations(x::ChainRecipe{E, N, SwapASAPWithoutCutoff},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
     samples = Matrix{typeof(rand(random_variables[1]))}(undef, length(random_variables), number_of_samples)
-samples[:, 1] .= rand.(random_variables)
+    samples[:, 1] .= rand.(random_variables)
     for j in 2:number_of_samples
         previous_sample = view(samples, :, j-1)
         end_time_previous_sample = maximum(previous_sample)
         for (i, var) in enumerate(random_variables)
-        # as free_times may be earlier than the end of the previous sample, some links may
-        # have a head start in entanglement generation
-        # as a result, some of the links may be finished already at negative times (i.e., 
-        # before the previous end-to-end link was finished)
-        samples[i, j] = _find_free_time(previous_sample, i) + rand(var) - end_time_previous_sample
-end
+            # as free_times may be earlier than the end of the previous sample, some links may
+            # have a head start in entanglement generation
+            # as a result, some of the links may be finished already at negative times (i.e., 
+            # before the previous end-to-end link was finished)
+            samples[i, j] = _find_free_time(previous_sample, i) + rand(var) - end_time_previous_sample
+        end
     end
     samples
 end

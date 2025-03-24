@@ -175,7 +175,6 @@ julia> _find_first_cutoff_link(sample, [3 for _ in 1:3])
 ```
 """
 function _find_first_cutoff_link(sample, cutoff_times)
-
     length(cutoff_times) == length(sample) - 1 || throw(DimensionMismatch)
 
     index = 0

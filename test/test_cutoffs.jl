@@ -1,6 +1,6 @@
 @testset "LocalCutoffProtocol" begin
     protocol = LocalCutoffProtocol()
-    @test typeof(protocol) == LocalCutoffProtocol
+    @test typeof(protocol) == LocalCutoffProtocol{Float64}
     @test protocol isa CutoffProtocol
     @test protocol.cutoff_time == Inf
     protocol = LocalCutoffProtocol(10.)

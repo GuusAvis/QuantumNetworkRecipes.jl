@@ -35,7 +35,7 @@ which may trigger frequent undesired cutoffs. On the other hand, if the end node
 measure their qubits, they do not need to store their qubits at all and there is no need for
 a cutoff protocol.
 """
-struct LocalCutoffProtocol <: CutoffProtocol
+struct LocalCutoffProtocol{T<:Real} <: CutoffProtocol
     """
     Time [s] after which nodes decide to discard entangled qubits.
     If the nodes in the network are `AbstractNodeWithCutoff`s, each node individually uses
@@ -43,8 +43,8 @@ struct LocalCutoffProtocol <: CutoffProtocol
     the value set here instead.
     A value of `Inf` (default) indicates that no cutoff time is used.
     """
-    cutoff_time::Real
-    LocalCutoffProtocol(cutoff_time::Real=Inf) = new(cutoff_time)
+    cutoff_time::T
+    LocalCutoffProtocol(cutoff_time::Real=Inf) = new{typeof(cutoff_time)}(cutoff_time)
 end
 
 """
@@ -75,7 +75,7 @@ struct NodeWithCutoff{T<:NodePhysicalRepresentation} <: AbstractNodeWithCutoff{T
     A value of `Inf` (default) indicates that no cutoff time is used.
     """
     physical_node::T
-    cutoff_time::Real
+    cutoff_time::Float64
     NodeWithCutoff(physical_node::T, cutoff_time::Float64=Inf) where
         T<:NodePhysicalRepresentation = new{T}(physical_node, cutoff_time)
 end

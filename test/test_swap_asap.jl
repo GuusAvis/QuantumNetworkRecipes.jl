@@ -140,36 +140,6 @@ end
         x = [4, 1, 2, 3, 1, 3]
         @test f(x, 1) == f(x, 2) == f(x, 6) == 4
         @test f(x, 3) == f(x, 4) == f(x, 5) == 3
-
-        @testset "Stochastic AD compatibility" begin
-            # link in the middle
-            x = [10., 6., stoch_trip(4., 0., 4., 1.), 6., 10.]
-            ready_time = f(x, 3)
-            # zeroth order: link 3 swaps both neighbors at time 6
-            # first order: link 3 is the limiting factor and only free at time 8
-            @test value(ready_time) == 6.
-            @test perturbation_is(ready_time, (2., 1.))
-
-            # link at the edge
-            x = [stoch_trip(10., 1., 10., 2.), 10., 15., 10.]
-            ready_time = f(x, 1)
-            @test value(ready_time) == 15.
-            @test perturbation_is(ready_time, (5., 2.))
-
-            # stochastic index
-            x = [5., 5., 5, 10., 10., 10.]
-            ready_time = f(x, stoch_trip(2, 3, 3, 1.))
-            # ready at 5 for index 2, ready at 10 for index 5
-            @test value(ready_time) == 5.
-            @test perturbation_is(ready_time, (5., 1.))
-
-            # stochastic index that makes a difference between center or edge
-            x = [5., 10., 5., 5., 5.]
-            ready_time = f(x, stoch_trip(4, 1, 1, 1.))
-            # 4 is center, 5 is edge and will have to wait until time 10
-            @test value(ready_time) == 5.
-            @test perturbation_is(ready_time, (5., 1.))
-        end
     end
 
     swap_asap = SwapASAPWithoutCutoff()
@@ -234,186 +204,38 @@ end
         index, cutoff_moment = f(sample, cutoff_times)
         @test index == 3  # not the oldest link that is discarded, but it is the first
         @test cutoff_moment == 6  # 3 + 3
-
-        @testset "StochasticAD compatibility" begin
-            st = stoch_trip(10., 1., 5., 2.,)
-            @test st isa StochasticAD.StochasticTriple
-            sample = [0, st, 10]
-            cutoff_times = [12., 12.]
-            # if st is 10, there is no cutoff and hence the result is (0, false)
-            # if st is 15, link 1 is discarded at time 12, and hence the result is (1, 12)
-            # hence, we expect (0 + (1 with probability 2.0ϵ),
-            # 0.0 + (12. with probability 2.0ϵ))
-            # (Note: false = 0.0, allowing treatment by StochasticAD.)
-            (index, cutoff_moment) = f(sample, cutoff_times)
-            @test value(index) == 0
-            @test value(cutoff_moment) == false
-            @test perturbation_is(index, (1, 2.))
-            @test perturbation_is(cutoff_moment, (12., 2.))
-
-            sample = [100., 12, st, 100]
-            cutoff_times = [12., 12., 12.]
-            # if st is 10, link 3 is cut off at time 10 + 12 = 22
-            # if st is 15, link 2 is cut off at time 12 + 12 = 24
-            (index, cutoff_moment) = f(sample, cutoff_times)
-            @test value(index) == 3
-            @test value(cutoff_moment) == 22
-            @test perturbation_is(index, (-1, 2.))
-            @test perturbation_is(cutoff_moment, (2., 2.))
-
-            sample = [st, st]
-            cutoff_times = [1.]
-            # st should always be the same value, and hence there is never a cutoff
-            # if they are accidentally treated as independent perturbations though,
-            # there will be cutoffs in perturbations (when one is 15 and the other is 10)
-            (index, cutoff_moment) = f(sample, cutoff_times)
-            @test iszero(index)
-            @test iszero(cutoff_moment)
-
-            # if the two instances of the sample are not independent,
-            # then there are perturbation terms where there is a cutoff
-            counter1 = counter2 = 0
-            for _ in 1:10
-                st1 = stoch_trip(10., 1., 5., 2.,)
-                st2 = stoch_trip(10., 1., 5., 2.,)
-                sample = [st1, st2]
-                (index, cutoff_moment) = f(sample, cutoff_times)
-                @test iszero(value(index))
-                @test iszero(value(cutoff_moment))
-                # whichever way the perturbation falls, the cutoff is always at time 11
-                # both triples contribute 2ϵ probability, so 4ϵ in total
-                @test perturbation_is(cutoff_moment, (11., 4.))
-
-                # the index will depend on which way the perturbation falls
-                # instead of accounting for all branches, it seems StochasticAD
-                # randomly chooses a branch; we should see both branches (cutoff index
-                # 1 or 2) with equal probability
-                # while each of the perturbations occurs with probability 2ϵ,
-                # the "collapsing" of the branch means that we will see probabilities 4ϵ
-                # (4ϵ * .5 to account for the fact that each appears only half of the times
-                # will give 2ϵ again)
-                perturbation_is(index, (1, 4.)) && (counter1 += 1)
-                perturbation_is(index, (2, 4.)) && (counter2 += 1)
-            end
-            @test counter1 + counter2 == 10
-            @test counter1 > 0
-            @test counter2 > 0
-
-            sample = [12., 0., 10.]
-            cutoff_times = [st, st]
-            # cutoff at link 2 if cutoff is 10, not if it is 15
-            (index, cutoff_moment) = f(sample, cutoff_times)
-            @test value(index) == 2
-            @test value(cutoff_moment) == 10
-            @test perturbation_is(index, (-2, 2.))
-            @test perturbation_is(cutoff_moment, (-10., 2.))
-
-            # both cutoff time and sample need to be in perturbation to get cutoff
-            # this is a second-order event and should hence not happen
-            sample = [10., stoch_trip(9., 0., -4., 1.), 10.]
-            cutoff_times = [stoch_trip(6., 0., -3., 1.) for _ in 1:2]
-            (index, cutoff_moment) = f(sample, cutoff_times)
-            @assert iszero(index)
-            @assert iszero(cutoff_moment)
-        end
     end
 
     @testset "find swapped links" begin
-        _to_set(x) = Set([i for (i, val) in Iterators.enumerate(x) if val])
-        f = _to_set ∘ QuantumNetworkRecipes._find_swapped_links
+        f = QuantumNetworkRecipes._find_swapped_links
         sample = [3, 2, 6, 4, 10]
-        @test f(sample, 2, 1) == Set()
-        @test f(sample, 2, 2) == Set([2])
-        @test f(sample, 2, 3) == Set([1, 2])
-        @test f(sample, 2, 6) == f(sample, 2, 7) == Set(1:4)
-        @test f(sample, 2, 10) == Set(1:5)
-        @test f(sample, 4, 3) == Set()
-        @test f(sample, 4, 4) == Set([4])
-        @test f(sample, 4, 7) == Set(1:4)
-        @test f(sample, 5, 10) == Set(1:5)
-
-        @testset "StochasticAD compatibility" begin
-            f = QuantumNetworkRecipes._find_swapped_links
-
-            # stochastic sample
-            sample = [10., stoch_trip(15., 0., 10., 1.), 10.]
-            @test f(sample, 1, 5.) == [false, false, false]
-            @test f(sample, 1, 30.) == [true, true, true]
-            # at time 20, swap happened only in the perturbation
-            f(sample, 1, 20.)
-
-            # stochastic index
-            sample = [10, 100, 10, 100]
-            index = stoch_trip(1, 0, 2, 1.)
-            @test f(sample, index, 5.) == [false, false, false, false]
-            swapped_links = f(sample, index, 15.)
-            @test value.(swapped_links) == [true, false, false, false]
-            @test all(perturbation_is.(swapped_links,
-                [(-1, 1.), (0, 1.), (1, 1.), (0, 1.)]))
-
-            # stochastic time
-            sample = [10., 20.]
-            time = stoch_trip(5., 0., 10., 3.)
-            swapped_links = f(sample, 1, time)
-            @test value.(swapped_links) == [false, false]
-            @test all(perturbation_is.(swapped_links, [(1., 3.), (0., 3.)]))
-            time = stoch_trip(15., 0., 10., 3.)
-            swapped_links = f(sample, 1, time)
-            @test value.(swapped_links) == [true, false]
-            @test all(perturbation_is.(swapped_links, [(0., 3.), (1., 3.)]))
-
-            # stochastic sample and index
-            sample = [stoch_trip(10., 0., 10., 3.), 15.]
-            index = stoch_trip(1, 0, 1, 10.)
-            swapped_links = f(sample, index, 12)
-            # both perturbations result in no swaps at all, with total 10 + 3 = 13ϵ
-            @test value.(swapped_links) == [true, false]
-            @test all(perturbation_is.(swapped_links, [(-1., 13.), (0., 13)]))
-
-            # stochastic sample and time
-            sample = [stoch_trip(10., 0., -5., 3.), 100.]
-            time = stoch_trip(8., 0., 10., 10.)
-            swapped_links = f(sample, 1, time)
-            # either perturbation makes the first entry from false to true
-            @test value.(swapped_links) == [false, false]
-            @test all(perturbation_is.(swapped_links, [(1., 13.), (0., 13.)]))
-
-            # stochastic index and time
-            sample = [10., 20.]
-            index = stoch_trip(1, 0, 1, 7.)
-            time = stoch_trip(15., 1., -10., 2.)
-            swapped_links = f(sample, index, time)
-            # either perturbation results in no swapped links
-            @test value.(swapped_links) == [true, false]
-            @test all(perturbation_is.(swapped_links, [(-1., 9.), (0., 9.)]))
-
-            # stochastic sample, index, and time
-            sample = [stoch_trip(10., 1., 100., 1.), 100.]
-            index = stoch_trip(1, 0, 1, 7.)
-            time = stoch_trip(15., 1., -10., 4.)
-            swapped_links = f(sample, index, time)
-            # all perturbations result in no swapped links
-            @test value.(swapped_links) == [true, false]
-            @test all(perturbation_is.(swapped_links, [(-1., 12.), (0., 12.)]))
-        end
+        @test f(sample, 2, 1) == 1:0
+        @test f(sample, 2, 2) == 2:2
+        @test f(sample, 2, 3) == 1:2
+        @test f(sample, 2, 6) == f(sample, 2, 7) == 1:4
+        @test f(sample, 2, 10) == 1:5
+        @test f(sample, 4, 3) == 1:0
+        @test f(sample, 4, 4) == 4:4
+        @test f(sample, 4, 7) == 1:4
+        @test f(sample, 5, 10) == 1:5
     end
 
     @testset "resample for earliest cutoff" begin
         f = QuantumNetworkRecipes._resample_for_earliest_cutoff
         sample = [10, 1, 10]
         cutoff_times = [2, 2] 
-        random_variables = [Dirac(i) for i in [100, 4, 200]]
-        resampled, sample = f(sample, random_variables, cutoff_times)
+        duration_samples = [100, 4, 200]
+        resampled, sample = f(sample, cutoff_times, duration_samples)
         # at time 3, link 2 will trigger a cutoff and will have to regenerate
         # regeneration takes 4 time units, meaning the new link is finished at time
         # 1 + 2 + 4 = 7
         @test sample == [10, 7, 10]
-        resampled, sample = f(sample, random_variables, cutoff_times)
+        resampled, sample = f(sample, cutoff_times, duration_samples)
         @test sample == [10, 13, 10]
         sample = [20, 9, 13, 14, 20]
         cutoff_times = [8 for _ in 1:4]
-        random_variables = [Dirac(100 * i) for i in 1:5]
-        resampled, sample = f(sample, random_variables, cutoff_times)
+        duration_samples = [100 * i for i in 1:5]
+        resampled, sample = f(sample, cutoff_times, duration_samples)
         # at time 17, link 2 triggers a cutoff; at that time, it will have been swapped
         # already with link 3 and link 4, which means they are all discarded
         # link 2 starts regenerating at time 17, and finishes at time 217
@@ -425,10 +247,10 @@ end
         @testset "StochasticAD compatibility" begin
             # stochastic cutoff time
             sample = [10., 4., 10.]
-            random_variables = [Dirac(10.), Dirac(4.), Dirac(10.)]
+            duration_samples = [10, 4, 10]
             st = stoch_trip(2., 0., 10., 2.)
             cutoff_times = [st for _ in 1:2]
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             @test convert(Bool, value(resampled)) == true
             @test value.(sample) == [10., 10., 10.]
             @test perturbation_is(resampled, (-1, 2.))
@@ -439,7 +261,7 @@ end
             cutoff_times = [4. for _ in 1:2]
             # if finished at time 2, cutoff at 6 and regenerate at 10
             # if finished at time 12, no cutoff
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             @test value(resampled) == true
             @test perturbation_is(resampled, (-1, 2.))
             @test value.(sample) == [10., 10., 10.]
@@ -450,7 +272,7 @@ end
             cutoff_times = [2. for _ in 1:2]
             # 0th order: all finish at time 10
             # 1st order: link 2 ready at time 0, cutoff at time 2, regen at time 6
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             @test value(resampled) == false
             @test perturbation_is(resampled, (1, 2.))
             @test value.(sample) == [10., 10., 10.]
@@ -459,7 +281,7 @@ end
             # stochastic, coupled sample
             sample = [st, st, st]
             cutoff_times = [1., 1.]
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             # the samples are coupled so should never be a cutoff
             @test iszero(resampled)
             @test sample == [st, st, st]
@@ -470,29 +292,29 @@ end
             # 0th order: finish at same time with small cutoff
             # 1st order: finish late with large cutoff
             # both cases, cutoff is not triggered
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             @test iszero(resampled)
             @test value.(sample) == [10., 10., 10.]
             @test all(perturbation_is.(sample, [(0, 2.), (10., 2.), (0, 2.)]))
 
             # resampled value is stochastic triple
-            random_variables = [Dirac(10.), Dirac(st), Dirac(10.)]
+            duration_samples = [10, st, 10]
             sample = [10., 7., 10.]
             cutoff_times = [2. for _ in 1:2]
             # cutoff is triggered at time 9
             # 0th order: regenerates at time 11
             # 1st order: regenerates at time 21
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             @test resampled == true
             @test value.(sample) == [10., 11., 10.]
             @test all(perturbation_is.(sample, [(0., 0.), (10., 2.), (0., 0.)]))
             # in the first case, resampling again has no effect
             # in the second case, if we resample two more times,
             # the other links are discarded at 12 and regenerated at 22
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             @test value(resampled) == false
             @test perturbation_is(resampled, (1, 2.))
-            resampled, sample = f(sample, random_variables, cutoff_times)
+            resampled, sample = f(sample, cutoff_times, duration_samples)
             @test value(resampled) == false
             @test perturbation_is(resampled, (1, 2.))
             @test value.(sample) == [10., 11., 10.]
@@ -545,7 +367,7 @@ end
             @test all(perturbation_is.(sample, [(0, 2.), (2., 2.), (0, 2.)]))
 
             # resample multiple times (copied from "resample for earliest cutoff")
-            random_variables = [Dirac(10.), Dirac(st), Dirac(10.)]
+            random_variables = [Dirac(stoch_trip(10., 0, 0, 0)), Dirac(st), Dirac(stoch_trip(10., 0, 0, 0))]
             sample = [10., 7., 10.]
             cutoff_times = [2. for _ in 1:2]
             sample = f(sample, random_variables, cutoff_times)

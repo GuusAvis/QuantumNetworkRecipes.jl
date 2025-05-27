@@ -159,6 +159,9 @@ Base.show(io::IO, x::Duration{S, T}) where {S, T} = print(io,
     "Duration{$S, $T}(success_probability=$(x.success_probability), " *
     "attempt_duration=$(x.attempt_duration))")
 
+# This overrides the default eltype of Int for discrete distributions
+Base.eltype(::Type{Duration{S, T}}) where {S, T} = promote_type(Int, T)
+
 _unary_functions_to_extend = [
     :(Statistics.mean), :(Statistics.median), :(Distributions.mode), :(Statistics.var),
     :(Distributions.skewness), :(Distributions.kurtosis), :(Distributions.entropy),

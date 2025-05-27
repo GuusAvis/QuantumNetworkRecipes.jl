@@ -70,7 +70,8 @@ function sample_link_durations end
 function sample_link_durations(x::ChainRecipe{E, N, SwapASAPRestartPerState},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_vars = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Matrix{typeof(rand(random_vars[1]))}(undef, length(random_vars), number_of_samples)
+    sample_type = eltype(eltype(random_vars))
+    samples = Matrix{sample_type}(undef, length(random_vars), number_of_samples)
     for col in eachcol(samples)
         col .= rand.(random_vars)
     end
@@ -123,7 +124,8 @@ end
 function sample_link_durations(x::ChainRecipe{E, N, SwapASAPWithoutCutoff},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Matrix{typeof(rand(random_variables[1]))}(undef, length(random_variables), number_of_samples)
+    sample_type = eltype(eltype(random_variables))
+    samples = Matrix{sample_type}(undef, length(random_variables), number_of_samples)
     samples[:, 1] .= rand.(random_variables)
     for j in 2:number_of_samples
         previous_sample = view(samples, :, j-1)
@@ -300,7 +302,9 @@ contains only the generation times of the links used in the final end-to-end sta
 """
 function _resample_until_no_cutoff(sample, random_variables, cutoff_times)
     resample = true
-    new_sample = promote(sample, rand.(random_variables), cutoff_times)[1]
+    # Promote sample type if it wasn't already
+    new_sample_type = promote_type(eltype(sample), eltype(eltype(random_variables)), eltype(cutoff_times))
+    new_sample = convert(Vector{new_sample_type}, sample)
     # Stop when every branch is done resampling
     while !isfalse(resample)
         # Give every branch the same random numbers
@@ -336,8 +340,8 @@ function sample_link_durations(
         for n in nodes(x)[begin + 1:end - 1]
     ]
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
-    output_type = typeof(sum(rand.(random_variables)) + sum(cutoff_times))
-    samples = Matrix{output_type}(undef, length(random_variables), number_of_samples)
+    sample_type = promote_type(eltype(eltype(random_variables)), eltype(cutoff_times))
+    samples = Matrix{sample_type}(undef, length(random_variables), number_of_samples)
     samples[:, 1] = _resample_until_no_cutoff(rand.(random_variables), random_variables, cutoff_times)
     for j in 2:number_of_samples
         previous_sample = view(samples, :, j-1)

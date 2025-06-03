@@ -71,7 +71,7 @@ function sample_link_durations(x::ChainRecipe{E, N, SwapASAPRestartPerState},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_vars = [Duration(e) for e in edges_and_nodes(x)]
     sample_type = eltype(eltype(random_vars))
-    samples = Matrix{sample_type}(undef, length(random_vars), number_of_samples)
+    samples = Matrix{sample_type}(undef, length(random_vars), Int(number_of_samples))
     for col in eachcol(samples)
         col .= rand.(random_vars)
     end
@@ -125,7 +125,7 @@ function sample_link_durations(x::ChainRecipe{E, N, SwapASAPWithoutCutoff},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
     sample_type = eltype(eltype(random_variables))
-    samples = Matrix{sample_type}(undef, length(random_variables), number_of_samples)
+    samples = Matrix{sample_type}(undef, length(random_variables), Int(number_of_samples))
     samples[:, 1] .= rand.(random_variables)
     for j in 2:number_of_samples
         previous_sample = view(samples, :, j-1)
@@ -341,7 +341,7 @@ function sample_link_durations(
     ]
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
     sample_type = promote_type(eltype(eltype(random_variables)), eltype(cutoff_times))
-    samples = Matrix{sample_type}(undef, length(random_variables), number_of_samples)
+    samples = Matrix{sample_type}(undef, length(random_variables), Int(number_of_samples))
     samples[:, 1] = _resample_until_no_cutoff(rand.(random_variables), random_variables, cutoff_times)
     for j in 2:number_of_samples
         previous_sample = view(samples, :, j-1)

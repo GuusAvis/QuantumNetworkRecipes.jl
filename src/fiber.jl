@@ -61,16 +61,16 @@ struct FiberSegment <: FiberBasedEdge
     """
     Total length [km] of the fiber segment.
     """
-    link_length::Real
+    link_length::Float64
     """
     Attenuation coefficient [dB/km] of the optical fiber.
     """
-    attenuation_coefficient::Real
+    attenuation_coefficient::Float64
     """
     Efficiency of the fiber segment. This is the probability that a photon sent through the
     fiber is detected on the other side if there were no fiber attenuation.
     """
-    efficiency::Real
+    efficiency::Float64
     """Number of modes supported for multiplexing."""
     num_multiplexing_modes::Integer
     function FiberSegment(link_length, attenuation_coefficient=0.2,

@@ -34,7 +34,12 @@ end
 function sample_link_durations(x::SingleSequentialRepeater{E, N}, number_of_samples) where
         {E<:HeraldedEntanglement, N}
     t_random_vars = [Duration(e) for e in edges_and_nodes(x)]
-    [[rand(t) for t in t_random_vars] for _ in 1:number_of_samples]
+    sample_type = eltype(eltype(t_random_vars))
+    samples = Matrix{sample_type}(undef, length(t_random_vars), Int(number_of_samples))
+    for col in eachcol(samples)
+        col .= rand.(t_random_vars)
+    end
+    samples
 end
 
 function generation_duration(x::SingleSequentialRepeater{E, N}, method::Sampling) where
@@ -46,7 +51,7 @@ end
 function generation_duration(::SingleSequentialRepeater{E, N}, ::Sampling,
         link_duration_samples) where
         {E<:HeraldedEntanglement, N<:SimpleNode}
-    durations = sum.(link_duration_samples)
+    durations = sum.(eachcol(link_duration_samples))
     _calculate_mean_and_error(durations)
 end
 
@@ -152,8 +157,7 @@ function skr_bb84(recipe::SingleSequentialRepeater{E, N}, method::Sampling,
     link_duration_samples = sample_link_durations(recipe, method.number_of_samples)
     duration, duration_error = generation_duration(recipe, method, link_duration_samples)
     index_slow_link = argmax(generation_duration.(edges_and_nodes(recipe)))
-    slow_link_duration_samples = [link_duration_samples[i][index_slow_link] for
-        i in eachindex(link_duration_samples)]
+    slow_link_duration_samples = link_duration_samples[index_slow_link, :]
     werner_param, werner_param_error =
         werner_parameter(recipe, method, slow_link_duration_samples)
     qber = (1 - werner_param) / 2

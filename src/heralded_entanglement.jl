@@ -4,14 +4,14 @@
 Recipe for an edge on which heralded entanglement generation takes place.
 
 In heralded entanglement generation, a sequence of attempts at entanglement generation is
-performed. Succes of these attempts is "heralded", that is, the nodes that are performing
+performed. Success of these attempts is "heralded", that is, the nodes that are performing
 heralded entanglement generation learn whether the attempt was a succes and entanglement
 was generated, or wether it was a failure. A series of attempts is performed until a success
 is obtained.
 
 It is assumed that all attempts are identical and have the same success probability.
-That is, they are modeled as identical and independent Bernouilli trials.
-As a conequence, the number of attempts until success is geometrically distributed.
+That is, they are modeled as identical and independent Bernoulli trials.
+As a consequence, the number of attempts until success is geometrically distributed.
 """
 abstract type HeraldedEntanglement{T<:EdgePhysicalRepresentation, S<:EntangledStateType} <:
     EdgeRecipe{T} end
@@ -87,29 +87,20 @@ generation_duration(edge::HeraldedEntanglement, nodes::Tuple{Vararg{NodeRecipe}}
 
 The number of identical and independent attempts needed to obtain a success.
 
-Every attempt is an independent Bernouilli process with the same success probability.
-The number of attempts until succes is a random variable that is geometrically distributed.
+Every attempt is an independent Bernoulli process with the same success probability.
+The number of attempts until success is a random variable that is geometrically distributed.
 However, it deviates slightly from `Geometric` included in `Distributions.jl`,
 as it uses a different convention:
-that one counts the number of _failed_ attemps until the first success.
+that one counts the number of _failed_ attempts until the first success.
 `NumberOfAttempts` also counts the succesful attempt.
 
 If an `EdgeAndNodes` is provided, first `success_probability` is called on the input.
-
-# Implementation
-
-`Distributions.Geometric` raises an error when a success probability of one is passed, even
-though the geometric distribution is well-defined at that value: it just always gives the
-same result, as the first attempt is always succesful. Therefore, in case 1 is passed here,
-we don't call `Distributions.Geometric` but instead `Distributions.Dirac` to give
-a distribution with support only at the value of one (it takes one attempt until success).
 """
 struct NumberOfAttempts{T<:Real} <: Distributions.DiscreteUnivariateDistribution
     success_probability::T
-    ρ::Distributions.DiscreteUnivariateDistribution
+    ρ::Distributions.LocationScale{Int, Distributions.Discrete, Distributions.Geometric{T}}
     function NumberOfAttempts(success_probability::T) where T <: Real
-        ρ = isone(success_probability) ? Distributions.Dirac(1) :
-            Distributions.Geometric(success_probability) + 1
+        ρ = Distributions.Geometric(success_probability) + 1
         new{T}(success_probability, ρ)
     end
 end
@@ -155,7 +146,7 @@ determined from that.
 struct Duration{S<:Real, T<:Real} <: Distributions.DiscreteUnivariateDistribution
     success_probability::S
     attempt_duration::T
-    ρ::Distributions.DiscreteUnivariateDistribution
+    ρ::Distributions.LocationScale{T, Distributions.Discrete, NumberOfAttempts{S}}
     function Duration(success_probability::S, attempt_duration::T) where {S, T}
         ρ = NumberOfAttempts(success_probability) * attempt_duration
         new{S, T}(success_probability, attempt_duration, ρ)
@@ -167,6 +158,9 @@ Distributions.partype(::Duration{S, T}) where {S, T}= (S, T)
 Base.show(io::IO, x::Duration{S, T}) where {S, T} = print(io,
     "Duration{$S, $T}(success_probability=$(x.success_probability), " *
     "attempt_duration=$(x.attempt_duration))")
+
+# This overrides the default eltype of Int for discrete distributions
+Base.eltype(::Type{Duration{S, T}}) where {S, T} = promote_type(Int, T)
 
 _unary_functions_to_extend = [
     :(Statistics.mean), :(Statistics.median), :(Distributions.mode), :(Statistics.var),

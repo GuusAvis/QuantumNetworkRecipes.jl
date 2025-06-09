@@ -62,17 +62,20 @@ end
 
 Draw a number of samples for the durations of generating each of the links in the chain.
 
-The samples are provided as a vector of vectors; the outer vector has length
-`number_of_samples`, each entry representing a single sample. The inner vectors have length
-equal to the number of links in the chain, and each entry represents the duration of
-generating the corresponding link.
+The samples are provided as an m-by-n matrix, where m is the number of links in the chain and n is
+the number of samples. Each entry represents the duration of generating the corresponding link.
 """
 function sample_link_durations end
 
 function sample_link_durations(x::ChainRecipe{E, N, SwapASAPRestartPerState},
         number_of_samples) where {E<:HeraldedEntanglement, N}
-    random_vars = [Duration(e) for e in edges_and_nodes(x)] 
-    [rand.(random_vars) for _ in 1:number_of_samples]
+    random_vars = [Duration(e) for e in edges_and_nodes(x)]
+    sample_type = eltype(eltype(random_vars))
+    samples = Matrix{sample_type}(undef, length(random_vars), Int(number_of_samples))
+    for col in eachcol(samples)
+        col .= rand.(random_vars)
+    end
+    samples
 end
 
 """
@@ -118,28 +121,22 @@ function _find_free_time(sample, link_index)
     end
 end
 
-function _find_free_time(sample, link_index::StochasticAD.StochasticTriple)
-    f = x -> _find_free_time(sample, x)
-    StochasticAD.propagate(f, link_index)
-end
-
 function sample_link_durations(x::ChainRecipe{E, N, SwapASAPWithoutCutoff},
         number_of_samples) where {E<:HeraldedEntanglement, N}
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Vector{Real}[]
-    sample = [0 for _ in 1:length(random_variables)]  # start time of the nodes
-    for _ in 1:number_of_samples
-        end_time_previous_sample = maximum(sample)
-        free_times = [_find_free_time(sample, i) for i in 1:length(sample)]
-        link_times_after_start_previous_sample = free_times + rand.(random_variables)
-        link_times_after_end_previous_sample = link_times_after_start_previous_sample .-
-            end_time_previous_sample
-        # as free_times may be earlier than the end of the previous sample, some links may
-        # have a head start in entanglement generation
-        # as a result, some of the links may be finished already at negative times (i.e., 
-        # before the previous end-to-end link was finished)
-        sample = link_times_after_end_previous_sample
-        push!(samples, sample)
+    sample_type = eltype(eltype(random_variables))
+    samples = Matrix{sample_type}(undef, length(random_variables), Int(number_of_samples))
+    samples[:, 1] .= rand.(random_variables)
+    for j in 2:number_of_samples
+        previous_sample = view(samples, :, j-1)
+        end_time_previous_sample = maximum(previous_sample)
+        for (i, var) in enumerate(random_variables)
+            # as free_times may be earlier than the end of the previous sample, some links may
+            # have a head start in entanglement generation
+            # as a result, some of the links may be finished already at negative times (i.e., 
+            # before the previous end-to-end link was finished)
+            samples[i, j] = _find_free_time(previous_sample, i) + rand(var) - end_time_previous_sample
+        end
     end
     samples
 end
@@ -175,7 +172,6 @@ julia> _find_first_cutoff_link(sample, [3 for _ in 1:3])
 ```
 """
 function _find_first_cutoff_link(sample, cutoff_times)
-
     length(cutoff_times) == length(sample) - 1 || throw(DimensionMismatch)
 
     index = 0
@@ -193,30 +189,13 @@ function _find_first_cutoff_link(sample, cutoff_times)
     index, first_cutoff_moment
 end
 
-function _find_first_cutoff_link(sample::Vector{T}, cutoff_times) where
-        T<:StochasticAD.StochasticTriple
-    f = x -> _find_first_cutoff_link(x, cutoff_times)
-    StochasticAD.propagate(f, sample)
-end
-function _find_first_cutoff_link(sample, cutoff_times::Vector{T}) where
-        T<:StochasticAD.StochasticTriple
-    f = x -> _find_first_cutoff_link(sample, x)
-    StochasticAD.propagate(f, cutoff_times)
-end
-function _find_first_cutoff_link(sample::Vector{T}, cutoff_times::Vector{S}) where
-        {T<:StochasticAD.StochasticTriple, S<:StochasticAD.StochasticTriple}
-    StochasticAD.propagate(_find_first_cutoff_link, sample, cutoff_times)
-end
-
 """
     _find_swapped_links(sample, link_index, time)
 
 Determine links in `sample` that were swapped with the one at `link_index` at time `time`.
 
-Returns `v::Vector{Bool}` such that `v[i] == true` if and only if link `i` was swapped.
-If `time` is before the time when the link indicated by `link_index` was created
-(i.e., `sample[link_index] > time`), `v[i] == false` for every `i`;
-otherwise, it always includes at least one `true` value, namely `v[link_index]`.
+Returns a range containing the indices of the swapped links.
+If `sample[link_index] > time`, return an empty range. Otherwise, it always includes `link_index`.
 Assumes a swap-asap protocol is performed.
 
 # Examples
@@ -230,94 +209,33 @@ julia> sample = [0, 6, 3, 4, 9]
  9
 
 julia> _find_swapped_links(sample, 3, 0)  # link cannot be swapped before it is created
-5-element Vector{Bool}:
- 0
- 0
- 0
- 0
- 0
+3:2
 
 julia> _find_swapped_links(sample, 3, 10)  # after last link generated, all is swapped
-5-element Vector{Bool}:
- 1
- 1
- 1
- 1
- 1
+1:5
 
 julia> _find_swapped_links(sample, 3, 4)  # swap happened on the right, but not on the left
-5-element Vector{Bool}:
- 0
- 0
- 1
- 1
- 0
+3:4
 
 julia> _find_swapped_links(sample, 3, 6)  # swapping on the left also gives link 1
-5-element Vector{Bool}:
- 1
- 1
- 1
- 1
- 0
+1:4
 ```
 """
 function _find_swapped_links(sample, link_index, time)
-    swapped_links = [false for _ in 1:length(sample)]
-    sample[link_index] > time && return swapped_links
-    swapped_links[link_index] = true
-    for i in (link_index + 1):length(sample)
-        if sample[i] <= time
-            swapped_links[i] = true
-        else
-            break
-        end
+    sample[link_index] > time && return link_index:link_index-1
+    i = link_index
+    while i > 1 && sample[i-1] <= time
+        i -= 1
     end
-    for i in reverse(1:(link_index - 1))
-        if sample[i] <= time
-            swapped_links[i] = true
-        else
-            break
-        end
+    j = link_index
+    while j < length(sample) && sample[j+1] <= time
+        j += 1
     end
-    swapped_links
-end
-
-function _find_swapped_links(sample::Vector{T}, link_index, time) where
-        T<:StochasticAD.StochasticTriple
-    f = x -> _find_swapped_links(x, link_index, time)
-    StochasticAD.propagate(f, sample)
-end
-function _find_swapped_links(sample, link_index::StochasticAD.StochasticTriple, time)
-    f = x -> _find_swapped_links(sample, x, time)
-    StochasticAD.propagate(f, link_index)
-end
-function _find_swapped_links(sample, link_index, time::StochasticAD.StochasticTriple)
-    f = x -> _find_swapped_links(sample, link_index, x)
-    StochasticAD.propagate(f, time)
-end
-function _find_swapped_links(sample::Vector{T}, link_index::StochasticAD.StochasticTriple,
-        time) where T<:StochasticAD.StochasticTriple
-    f = (x, y) -> _find_swapped_links(x, y, time)
-    StochasticAD.propagate(f, sample, link_index)
-end
-function _find_swapped_links(sample::Vector{T}, link_index,
-        time::StochasticAD.StochasticTriple) where T<:StochasticAD.StochasticTriple
-    f = (x, y) -> _find_swapped_links(x, link_index, y)
-    StochasticAD.propagate(f, sample, time)
-end
-function _find_swapped_links(sample, link_index::StochasticAD.StochasticTriple,
-        time::StochasticAD.StochasticTriple)
-    f = (x, y) -> _find_swapped_links(sample, x, y)
-    StochasticAD.propagate(f, link_index, time)
-end
-function _find_swapped_links(sample::Vector{T}, link_index::StochasticAD.StochasticTriple,
-        time::StochasticAD.StochasticTriple) where T<:StochasticAD.StochasticTriple
-    StochasticAD.propagate(_find_swapped_links, sample, link_index, time)
+    i:j
 end
 
 """
-    _resample_for_earliest_cutoff(sample, random_variables, cutoff_times)
+    _resample_for_earliest_cutoff(sample, cutoff_times, duration_samples)
 
 Create updated sample to account for the earliest cutoff that takes place.
 
@@ -331,171 +249,107 @@ times contained in the sample. If no cutoff is triggered, the sample is not chan
 The function returns `(true, updated_sample)` if resampling took place, and
 `(false, old_sample)` if there was no cutoff.
 """
-function _resample_for_earliest_cutoff(sample, random_variables, cutoff_times)
+function _resample_for_earliest_cutoff(sample, cutoff_times, duration_samples)
     link_index, cutoff_moment = _find_first_cutoff_link(sample, cutoff_times)
-    _resample_for_link_index(sample, link_index, random_variables, cutoff_moment)
-end
-
-"""
-    _resample_for_link_index(sample, link_index, random_variables, cutoff_moment)
-
-Create updated sample to account for discarding link `link_index` at time `cutoff_moment`.
-
-Returns `(true, updated_sample)` if the sample was updated and `(false, old_sample)` if no
-update was necessary. The second case occurs if `link_index == 0`.
-Will update the values for both the link at `link_index` and all the links that the
-discarded link was swapped with.
-"""
-function _resample_for_link_index(sample, link_index, random_variables, cutoff_moment)
     iszero(link_index) && return false, sample
     swapped_links = _find_swapped_links(sample, link_index, cutoff_moment)
-    sample = _resample_swapped_links(sample, swapped_links, random_variables,
-        cutoff_moment)
-    true, sample
-end
-
-function _resample_for_link_index(sample::Vector{T}, link_index, random_variables,
-        cutoff_moment) where T<:StochasticAD.StochasticTriple
-    f = x -> _resample_for_link_index(x, link_index, random_variables, cutoff_moment)
-    StochasticAD.propagate(f, sample)
-end
-function _resample_for_link_index(sample, link_index::StochasticAD.StochasticTriple,
-        random_variables, cutoff_moment)
-    f = x -> _resample_for_link_index(sample, x, random_variables, cutoff_moment)
-    StochasticAD.propagate(f, link_index)
-end
-function _resample_for_link_index(sample, link_index, random_variables,
-        cutoff_moment::StochasticAD.StochasticTriple)
-    f = x -> _resample_for_link_index(sample, link_index, random_variables, x)
-    StochasticAD.propagate(f, cutoff_moment)
-end
-function _resample_for_link_index(sample::Vector{T},
-        link_index::StochasticAD.StochasticTriple, random_variables, cutoff_moment) where
-        T<:StochasticAD.StochasticTriple
-    f = (x, y) -> _resample_for_link_index(x, y, random_variables, cutoff_moment)
-    StochasticAD.propagate(f, sample, link_index)
-end
-function _resample_for_link_index(sample::Vector{T}, link_index, random_variables,
-        cutoff_moment::StochasticAD.StochasticTriple) where T<:StochasticAD.StochasticTriple
-    f = (x, y) -> _resample_for_link_index(x, link_index, random_variables, y)
-    StochasticAD.propagate(f, sample, cutoff_moment)
-end
-function _resample_for_link_index(sample, link_index::StochasticAD.StochasticTriple,
-        random_variables, cutoff_moment::StochasticAD.StochasticTriple)
-    f = (x, y) -> _resample_for_link_index(sample, x, random_variables, y)
-    StochasticAD.propagate(f, link_index, cutoff_moment)
-end
-function _resample_for_link_index(sample::Vector{T},
-        link_index::StochasticAD.StochasticTriple, random_variables,
-        cutoff_moment::StochasticAD.StochasticTriple) where T<:StochasticAD.StochasticTriple
-    f = (x, y, z) -> _resample_for_link_index(x, y, random_variables, z)
-    StochasticAD.propagate(f, sample, link_index, cutoff_moment)
-end
-
-"""
-    _resample_swapped_links(sample, swapped_links, random_variables, cutoff_moment)
-
-Return updated sample to account for discard of all `swapped_links` at time `cutoff_moment`.
-
-This function samples the time required to make new links from `random_variables`.
-However these values are not simply added to `cutoff_moment` to find the new link completion
-times; due to entanglement swapping, nodes may have been freed to start generating new links
-already before the cutoff time. This function accounts for that using the function
-`_find_free_time`.
-"""
-function _resample_swapped_links(sample, swapped_links, random_variables, cutoff_moment)
-    free_times = Dict(i => _find_free_time(sample, i)
-        for (i, v) in Iterators.enumerate(swapped_links) if convert(Bool, v))
-    for (index, val) in Iterators.enumerate(swapped_links)
-        convert(Bool, val) || continue
-        restart_time = min(free_times[index], cutoff_moment)
-        new_time = restart_time + rand(random_variables[index])
-        sample = _update_sample_entry(sample, index, new_time)
-    end
-    sample
-end
-
-function _resample_swapped_links(sample, swapped_links::Vector{T}, random_variables,
-        cutoff_moment) where T<:StochasticAD.StochasticTriple
-    f = x -> _resample_swapped_links(sample, x, random_variables, cutoff_moment)
-    StochasticAD.propagate(f, swapped_links)
-end
-function _resample_swapped_links(sample::Vector{T}, swapped_links, random_variables,
-        cutoff_moment) where T<:StochasticAD.StochasticTriple
-    f = x -> _resample_swapped_links(x, swapped_links, random_variables, cutoff_moment)
-    StochasticAD.propagate(f, sample)
-end
-
-"""
-    _update_sample_entry(sample, index, new_time)
-
-Return an updated sample for which `sample[index] == new_time`.
-
-The reason why this is a separate function is for compatibility with the `StochasticAD`
-package for stochastic automatic differentiation. If `new_time` is a stochastic triple,
-it is not possible to simply use `setindex!`, but the vector representing the sample
-needs to be converted.
-"""
-function _update_sample_entry(sample, index, new_time)
     new_sample = copy(sample)
-    new_sample[index] = new_time
-    new_sample
+    for index in swapped_links
+        free_time = _find_free_time(sample, index)
+        restart_time = min(free_time, cutoff_moment)
+        new_sample[index] = restart_time + duration_samples[index]
+    end
+    true, new_sample
 end
-# Below method could be useful in case of incompatibility with StochasticAD.
-# function _update_sample_entry(sample, index::StochasticAD.StochasticTriple, new_time)
-#     f = x -> _update_sample_entry(sample, x, new_time)
-#     StochasticAD.propagate(f, index)
-# end
-function _update_sample_entry(sample, index, new_time::StochasticAD.StochasticTriple)
-    new_sample = first.(promote.(sample, new_time))
-    new_sample[index] = new_time
-    new_sample
+
+function _resample_for_earliest_cutoff(sample::AbstractVector{T}, cutoff_times, duration_samples) where
+        T<:StochasticAD.StochasticTriple
+    StochasticAD.propagate(_resample_for_earliest_cutoff, sample, cutoff_times, duration_samples)
+end
+function _resample_for_earliest_cutoff(sample, cutoff_times::AbstractVector{T}, duration_samples) where
+        T<:StochasticAD.StochasticTriple
+    StochasticAD.propagate(_resample_for_earliest_cutoff, sample, cutoff_times, duration_samples)
+end
+function _resample_for_earliest_cutoff(sample, cutoff_times, duration_samples::AbstractVector{T}) where
+        T<:StochasticAD.StochasticTriple
+    StochasticAD.propagate(_resample_for_earliest_cutoff, sample, cutoff_times, duration_samples)
+end
+function _resample_for_earliest_cutoff(sample::AbstractVector{T}, cutoff_times::AbstractVector{S}, duration_samples) where
+        {T<:StochasticAD.StochasticTriple, S<:StochasticAD.StochasticTriple}
+    StochasticAD.propagate(_resample_for_earliest_cutoff, sample, cutoff_times, duration_samples)
+end
+function _resample_for_earliest_cutoff(sample::AbstractVector{T}, cutoff_times, duration_samples::AbstractVector{S}) where
+        {T<:StochasticAD.StochasticTriple, S<:StochasticAD.StochasticTriple}
+    StochasticAD.propagate(_resample_for_earliest_cutoff, sample, cutoff_times, duration_samples)
+end
+function _resample_for_earliest_cutoff(sample, cutoff_times::AbstractVector{T}, duration_samples::AbstractVector{S}) where
+        {T<:StochasticAD.StochasticTriple, S<:StochasticAD.StochasticTriple}
+    StochasticAD.propagate(_resample_for_earliest_cutoff, sample, cutoff_times, duration_samples)
+end
+function _resample_for_earliest_cutoff(sample::AbstractVector{T}, cutoff_times::AbstractVector{S}, duration_samples::AbstractVector{U}) where
+        {T<:StochasticAD.StochasticTriple, S<:StochasticAD.StochasticTriple, U<:StochasticAD.StochasticTriple}
+    StochasticAD.propagate(_resample_for_earliest_cutoff, sample, cutoff_times, duration_samples)
 end
 
 """
     _resample_until_no_cutoff(sample, random_variables, cutoff_times)
 
-Resample for the earliest cutoff until a sample is returned that does not trigger a cutoff.
+Resample for the earliest cutoff until it does not trigger a cutoff.
 
 This function can be used to simulate a swap-asap protocol with a cutoff policy.
-Given an initial sample of link-generation times, it repeatedly updates the sample to
-create a sample that contains only the times at which links that are used to produce the
-final end-to-end state.
+Given an initial sample of link-generation times, it repeatedly updates the sample until it
+contains only the generation times of the links used in the final end-to-end state.
 """
 function _resample_until_no_cutoff(sample, random_variables, cutoff_times)
-    resample_again = true
-    while !isfalse(resample_again)
-        resample_again, sample = _resample_for_earliest_cutoff(sample, random_variables,
-            cutoff_times)
+    resample = true
+    # Promote sample type if it wasn't already
+    new_sample_type = promote_type(eltype(sample), eltype(eltype(random_variables)), eltype(cutoff_times))
+    new_sample = convert(Vector{new_sample_type}, sample)
+    # Stop when every branch is done resampling
+    while !isfalse(resample)
+        # Give every branch the same random numbers
+        duration_samples = rand.(random_variables)
+        resample, new_sample = _resample_for_earliest_cutoff(new_sample, cutoff_times, duration_samples)
     end
-    sample
+    new_sample
+end
+
+# Custom dispatch for efficiency
+function _resample_until_no_cutoff(sample::AbstractVector{Float64}, random_variables::Vector{Duration{Float64, Float64}}, cutoff_times::Vector{Float64})
+    cur_sample = copy(sample)
+    next_sample = copy(sample)
+    while true
+        link_index, cutoff_moment = _find_first_cutoff_link(cur_sample, cutoff_times)
+        iszero(link_index) && return cur_sample
+        swapped_links = _find_swapped_links(cur_sample, link_index, cutoff_moment)
+        for index in swapped_links
+            free_time = _find_free_time(cur_sample, index)
+            restart_time = min(free_time, cutoff_moment)
+            next_sample[index] = restart_time + rand(random_variables[index])
+        end
+        cur_sample[swapped_links] = view(next_sample, swapped_links)
+    end
 end
 
 function sample_link_durations(
-        x::ChainRecipe{E, N, SwapASAPWithCutoff{LocalCutoffProtocol}}, number_of_samples
-        ) where {E<:HeraldedEntanglement, N}
+        x::ChainRecipe{E, N, SwapASAPWithCutoff{LocalCutoffProtocol{T}}}, number_of_samples
+        ) where {E<:HeraldedEntanglement, N, T<:Real}
     cutoff_times = [
         n isa AbstractNodeWithCutoff ? cutoff_time(n) :
             x.chain_protocol.cutoff_protocol.cutoff_time
         for n in nodes(x)[begin + 1:end - 1]
     ]
     random_variables = [Duration(e) for e in edges_and_nodes(x)]
-    samples = Vector{Real}[]
-    previous_sample = [0 for _ in 1:length(random_variables)]  # start time of the nodes
-    for _ in 1:number_of_samples
+    sample_type = promote_type(eltype(eltype(random_variables)), eltype(cutoff_times))
+    samples = Matrix{sample_type}(undef, length(random_variables), Int(number_of_samples))
+    samples[:, 1] = _resample_until_no_cutoff(rand.(random_variables), random_variables, cutoff_times)
+    for j in 2:number_of_samples
+        previous_sample = view(samples, :, j-1)
         end_time_previous_sample = maximum(previous_sample)
-        free_times = [_find_free_time(previous_sample, i)
-            for i in 1:length(previous_sample)]
-        link_times_after_start_previous_sample = free_times + rand.(random_variables)
-        link_times_after_end_previous_sample = link_times_after_start_previous_sample .-
-            end_time_previous_sample
-        new_sample = link_times_after_end_previous_sample
-        all(isinf.(cutoff_times)) || begin
-            new_sample = _resample_until_no_cutoff(new_sample, random_variables,
-                cutoff_times)
+        for (i, var) in enumerate(random_variables)
+            samples[i, j] = _find_free_time(previous_sample, i) + rand(var) - end_time_previous_sample
         end
-        push!(samples, new_sample)
-        previous_sample = new_sample
+        samples[:, j] = _resample_until_no_cutoff(samples[:, j], random_variables, cutoff_times)
     end
     samples
 end
@@ -508,7 +362,7 @@ end
 
 function generation_duration(::ChainRecipe{E, N, P}, ::Sampling,
         link_duration_samples) where {E, N, P<:SwapASAP}
-    durations = maximum.(link_duration_samples)
+    durations = maximum.(eachcol(link_duration_samples))
     _calculate_mean_and_error(durations)
 end
 
@@ -559,7 +413,7 @@ function werner_parameter(x::ChainRecipe{E, SimpleNode{N}, P}, ::Sampling,
         N<:AbstractNodeWithMemory{DepolarizingMemory}, P<:SwapASAP}
     werner_param_links = prod(werner_parameter_from_fidelity(entangled_state_fidelity(e))
         for e in edges_and_nodes(x))
-    ts = link_duration_samples
+    ts = eachcol(link_duration_samples)
     mem_depolar_params = [mem_depolar_param_from_link_durations(x, t) for t in ts]
     werner_params = mem_depolar_params * werner_param_links
     _calculate_mean_and_error(werner_params)
